@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.21.1)
+
+set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
+
+include(cmake/utils/build_protection.cmake)
+
+set(PROJECT_NAME    "ak-certificate-testing")
+set(PROJECT_VERSION "0.0.1")
+project(${PROJECT_NAME} VERSION ${PROJECT_VERSION})
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_RELEASE OFF)
+set(CMAKE_UPX_COMPRESS OFF)
+
+set(PROJECT_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(PROJECT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(PROJECT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON) # For compatability with C stuff
+
+include(cmake/platform/generic_builder.cmake)
+
