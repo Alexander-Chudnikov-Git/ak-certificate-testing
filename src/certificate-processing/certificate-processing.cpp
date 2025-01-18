@@ -2,32 +2,41 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/fmt/ostr.h>
 
-#include "certificate-processing.hpp"
+#include "certificate-processing.hpp" ///< Хэдеры Akrypt загружается в последнюю очередь, так как в противном случае возникают ошибки компиляции
 
 namespace CHDK
 {
 CertificateProcessing::CertificateProcessing() :
-    ak_initialized(false)
+    ak_initialized(false), ak_certificate_loaded(false), ak_cert(new struct certificate)
 {
-    this->initLibAkrypt();
+    this->ak_cert->vkey = {}; ///< Если не инициализировать данные структуры, визникает ошибка доступка к неинициализированной переменной при вызове ak_certificate_destroy, если сертификат не был загружен
+    this->ak_cert->opts = {}; ///< Аналогично
+
+    this->initLibAkrypt(); ///< Инициализация библиотеки Akrypt
 }
 
 CertificateProcessing::~CertificateProcessing()
 {
     ak_libakrypt_destroy();
-    ak_certificate_destroy(this->ak_cert);
-    this->ak_audit = nullptr;
+
+    if (this->ak_cert != nullptr) ///< Данная проверка нужна только для delete
+    {
+        ak_certificate_destroy(this->ak_cert);
+        delete this->ak_cert;
+    }
+
+    this->ak_audit = nullptr; ///< Чистим указатель на всякий случай
 }
 
 void CertificateProcessing::loadCertificate(const std::string& certificate_path)
 {
-    if (!this->checkLibAkryptInit())
+    if (!this->isLibAkryptInit())
     {
         return;
     }
     spdlog::info(" Started loading certificate.");
 
-    this->ak_cert = new struct certificate;
+    ak_certificate_loaded = false;
 
     int error = ak_error_ok;
 
@@ -38,7 +47,6 @@ void CertificateProcessing::loadCertificate(const std::string& certificate_path)
     if (error != ak_error_ok)
     {
         spdlog::error(" Unable to generate certificate options. {}", this->getAkErrorDescription(error));
-        ak_certificate_destroy(this->ak_cert);
         return;
     }
 
@@ -47,9 +55,10 @@ void CertificateProcessing::loadCertificate(const std::string& certificate_path)
     if (error != ak_error_ok)
     {
         spdlog::error(" Unable to import certificate options. {}", this->getAkErrorDescription(error));
-        ak_certificate_destroy(this->ak_cert);
         return;
     }
+
+    this->ak_certificate_loaded = true;
 
     spdlog::info(" Cerfificate {} loaded.", certificate_path);
 
@@ -58,33 +67,33 @@ void CertificateProcessing::loadCertificate(const std::string& certificate_path)
 
 void CertificateProcessing::dumpCertificate()
 {
-    if (!this->checkLibAkryptInit())
+    if (!this->isLibAkryptInit())
     {
         return;
     }
 
-    if (this->ak_cert == nullptr)
+    if (this->ak_cert == nullptr || !ak_certificate_loaded)
     {
-        spdlog::info(" Certificate is not loaded.");
+        spdlog::error(" Certificate is not loaded.");
         return;
     }
 
-    std::string_view cname = getCertificateCommonName();
-    std::string_view time_buffer = getCertificateExpirationDate();
-    std::string_view serial_str = getCertificateSerialNumber();
+    std::string_view cname       = this->getCertificateCommonName();
+    std::string_view time_buffer = this->getCertificateExpirationDate();
+    std::string_view serial_str  = this->getCertificateSerialNumber();
 
-    spdlog::info(" {:<10} {:<12} {}", serial_str, time_buffer, cname);
+    spdlog::info(" {:<10} {:<12} {}", serial_str, time_buffer, cname); ///< Вывод информации о номере, дате истечения срока действия, и названия сертификата
 
-    auto [pubkey_x_str, pubkey_y_str, pubkey_z_str] = extractKeyCoordinates(this->ak_cert->vkey.qpoint);
-    std::string_view curve_str = getCertificateCurveName();
+    auto [pubkey_x_str, pubkey_y_str, pubkey_z_str] = this->extractPointCoordinates(this->ak_cert->vkey.qpoint);
+    std::string_view curve_str = this->getCertificateCurveName();
 
-    spdlog::info(" Public key: x-{}", pubkey_x_str);
+    spdlog::info(" Public key: x-{}", pubkey_x_str); ///< Вывод информации о публичном ключе
     spdlog::info("             y-{}", pubkey_y_str);
     spdlog::info("             z-{}", pubkey_z_str);
 
-    spdlog::info(" Curve:      {}", curve_str);
+    spdlog::info(" Curve:      {}", curve_str); ///< Вывод названия эллиптической кривой
 
-    if (isPointOnCurve(this->ak_cert->vkey.qpoint))
+    if (this->isPointOnCurve(this->ak_cert->vkey.qpoint)) ///< Проверка точки на предмет того, лежит ли она на кривой
     {
         spdlog::info(" Public key is on the curve");
     }
@@ -95,20 +104,20 @@ void CertificateProcessing::dumpCertificate()
 
     ak_uint64 k_val[8];
 
-    if (!generateRandomK(k_val))
+    if (!this->generateRandomK(k_val))
     {
         return;
     }
 
-    auto [mwp_x_str, mwp_y_str, mwp_z_str] = calculateMultiplePoint(k_val);
+    auto [mwp_x_str, mwp_y_str, mwp_z_str] = this->calculateMultiplePoint(k_val);
 
-    spdlog::info(" K: {}", ak_mpzn_to_hexstr(k_val, ak_hash_get_tag_size(&ak_cert->vkey.ctx)>>3));
+    spdlog::info(" K: {}", ak_mpzn_to_hexstr(k_val, ak_hash_get_tag_size(&this->ak_cert->vkey.ctx)>>3)); ///< Вывод раномно сгенерированного скаляра
 
-    spdlog::info(" Multiple point: x-{}", mwp_x_str);
+    spdlog::info(" Multiple point: x-{}", mwp_x_str); ///< Вывод информации о кратной точке
     spdlog::info("                 y-{}", mwp_y_str);
     spdlog::info("                 z-{}", mwp_z_str);
 
-    if (isPointOnCurve(this->ak_cert->vkey.qpoint))
+    if (this->isPointOnCurve(this->ak_cert->vkey.qpoint)) ///< Проверка кратной точки на предмет того, лежит ли она на кривой
     {
         spdlog::info(" Multiple point is on the curve");
     }
@@ -121,7 +130,7 @@ void CertificateProcessing::dumpCertificate()
 std::string_view CertificateProcessing::getCertificateCommonName()
 {
     std::string_view cname = "Unknown CN";
-    ak_uint8* cname_raw = ak_tlv_get_string_from_global_name(ak_cert->opts.subject, "2.5.4.3", nullptr);
+    ak_uint8* cname_raw = ak_tlv_get_string_from_global_name(this->ak_cert->opts.subject, "2.5.4.3", nullptr); ///< Достаем CN из сертификата
 
     if (cname_raw != nullptr)
     {
@@ -133,7 +142,7 @@ std::string_view CertificateProcessing::getCertificateCommonName()
 std::string_view CertificateProcessing::getCertificateExpirationDate()
 {
     static std::string formatted_date;
-    std::time_t not_after = ak_cert->opts.time.not_after;
+    std::time_t not_after = this->ak_cert->opts.time.not_after; ///< Достаем дату истечения срока действия
     std::tm time_info;
 
     if (localtime_r(&not_after, &time_info))
@@ -142,7 +151,7 @@ std::string_view CertificateProcessing::getCertificateExpirationDate()
                                      time_info.tm_mday,
                                      std::string_view("JanFebMarAprMayJunJulAugSepOctNovDec")
                                          .substr(time_info.tm_mon * 3, 3),
-                                     1900 + time_info.tm_year);
+                                     1900 + time_info.tm_year);  ///< Конвертируем дату в читаемый формат
 
         return std::string_view(formatted_date);
     }
@@ -154,9 +163,9 @@ std::string_view CertificateProcessing::getCertificateExpirationDate()
 
 std::string_view CertificateProcessing::getCertificateSerialNumber()
 {
-    std::string_view serial_str = ak_ptr_to_hexstr(ak_cert->opts.serialnum, ak_cert->opts.serialnum_length, ak_false);
+    std::string_view serial_str = ak_ptr_to_hexstr(this->ak_cert->opts.serialnum, this->ak_cert->opts.serialnum_length, ak_false); ///< Достаем серийный номер сертификата
 
-    if (ak_cert->opts.serialnum_length >= 18)
+    if (this->ak_cert->opts.serialnum_length >= 18)
     {
         serial_str = serial_str.substr(0, 36);
         serial_str = std::string(serial_str) + "...";
@@ -166,21 +175,19 @@ std::string_view CertificateProcessing::getCertificateSerialNumber()
 
 std::string_view CertificateProcessing::getCertificateCurveName()
 {
-    auto pubkey_wcurve = ak_cert->vkey.wc;
-    return ak_oid_find_by_data(pubkey_wcurve)->name[0];
+    return ak_oid_find_by_data(this->ak_cert->vkey.wc)->name[0]; ///< Достаем название кривой
 }
 
 bool CertificateProcessing::isPointOnCurve(struct wpoint& local_wpoint)
 {
-    auto pubkey_wcurve = ak_cert->vkey.wc;
-    return ak_wpoint_is_ok(&local_wpoint, pubkey_wcurve);
+    return ak_wpoint_is_ok(&local_wpoint, this->ak_cert->vkey.wc); ///< Проверяем лежит ли точка на кривой
 }
 
-std::tuple<std::string, std::string, std::string> CertificateProcessing::extractKeyCoordinates(struct wpoint& local_wpoint)
+std::tuple<std::string, std::string, std::string> CertificateProcessing::extractPointCoordinates(struct wpoint& local_wpoint)
 {
-    size_t ts = ak_hash_get_tag_size(&ak_cert->vkey.ctx);
+    size_t ts = ak_hash_get_tag_size(&this->ak_cert->vkey.ctx);
 
-    std::string pubkey_x_str = ak_mpzn_to_hexstr(local_wpoint.x, ( ts>>3 ));
+    std::string pubkey_x_str = ak_mpzn_to_hexstr(local_wpoint.x, ( ts>>3 )); ///< Вытаскиваем из точки отдельные координаты
     std::string pubkey_y_str = ak_mpzn_to_hexstr(local_wpoint.y, ( ts>>3 ));
     std::string pubkey_z_str = ak_mpzn_to_hexstr(local_wpoint.z, ( ts>>3 ));
 
@@ -191,15 +198,14 @@ std::tuple<std::string, std::string, std::string> CertificateProcessing::calcula
 {
     struct wpoint multiple_wpoint;
 
-    auto pubkey_wpoint = ak_cert->vkey.qpoint;
-    auto pubkey_wcurve = ak_cert->vkey.wc;
-    ak_wpoint_pow(&multiple_wpoint, &pubkey_wpoint, k, pubkey_wcurve->size, pubkey_wcurve);
+    auto pubkey_wpoint = this->ak_cert->vkey.qpoint;
+    auto pubkey_wcurve = this->ak_cert->vkey.wc;
+    ak_wpoint_pow(&multiple_wpoint, &pubkey_wpoint, k, pubkey_wcurve->size, pubkey_wcurve); ///< Возводим точку в кратную степень
 
-    size_t ts = ak_hash_get_tag_size( &ak_cert->vkey.ctx );
-    std::string mwp_x_str = ak_mpzn_to_hexstr(multiple_wpoint.x, ( ts>>3 ));
+    size_t ts = ak_hash_get_tag_size(&this->ak_cert->vkey.ctx);
+    std::string mwp_x_str = ak_mpzn_to_hexstr(multiple_wpoint.x, ( ts>>3 )); ///< Вытаскиваем из кратной точки отдельные координаты
     std::string mwp_y_str = ak_mpzn_to_hexstr(multiple_wpoint.y, ( ts>>3 ));
     std::string mwp_z_str = ak_mpzn_to_hexstr(multiple_wpoint.z, ( ts>>3 ));
-    std::string mwp_k_str = ak_mpzn_to_hexstr(k, ( ts>>3 ));
 
     return std::make_tuple(mwp_x_str, mwp_y_str, mwp_z_str);
 }
@@ -208,13 +214,13 @@ bool CertificateProcessing::generateRandomK(ak_uint64 (&k)[8])
 {
     struct random generator;
 
-    if (ak_random_create_lcg(&generator) != ak_error_ok)
+    if (ak_random_create_lcg(&generator) != ak_error_ok) ///< Инициализируем генератор рандомных чисел
     {
         spdlog::error(" Unable to initialize LCG random number generator.");
         return false;
     }
 
-    if (ak_random_ptr(&generator, k, sizeof(k)) != ak_error_ok)
+    if (ak_random_ptr(&generator, k, sizeof(k)) != ak_error_ok) ///< Генерируем случайное значение
     {
         spdlog::error(" Failed to generate random values.");
         ak_random_destroy(&generator);
@@ -230,8 +236,10 @@ void CertificateProcessing::initLibAkrypt()
 {
     this->ak_audit = ak_function_log_syslog;
 
-    if (ak_libakrypt_create(this->ak_audit) != ak_true)
+    if (ak_libakrypt_create(this->ak_audit) != ak_true) ///< Инициализируем akrypt
     {
+        this->ak_initialized = false;
+
         ak_libakrypt_destroy();
         this->ak_audit = nullptr;
         return;
@@ -239,9 +247,9 @@ void CertificateProcessing::initLibAkrypt()
     this->ak_initialized = true;
 }
 
-bool CertificateProcessing::checkLibAkryptInit()
+bool CertificateProcessing::isLibAkryptInit()
 {
-    if (this->ak_initialized && this->ak_audit != nullptr)
+    if (this->ak_initialized && this->ak_audit != nullptr) ///< Проверяем инициализирован ли akrypt
     {
         return true;
     }
@@ -250,7 +258,7 @@ bool CertificateProcessing::checkLibAkryptInit()
     return false;
 }
 
-constexpr std::string_view CertificateProcessing::getAkErrorDescription(int error)
+std::string_view CertificateProcessing::getAkErrorDescription(int error)
 {
   switch (error)
   {
