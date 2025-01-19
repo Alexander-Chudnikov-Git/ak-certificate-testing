@@ -17,7 +17,7 @@ set(PROJECT_INCLUDE_DIRS)
 set(PROJECT_LIBRARIES_LIST)
 
 # [SOURCE DIRECTORIES]
-set(PROJECT_MAIN_SRC_DIR   "src")
+set(PROJECT_MAIN_SRC_DIR   "${CMAKE_SOURCE_DIR}/src")
 
 file(GLOB PROJECT_MAIN_SRC_FILES CONFIGURE_DEPENDS
     "${PROJECT_MAIN_SRC_DIR}/*.hpp"
@@ -38,9 +38,7 @@ else()
     message(FATAL_ERROR "Unsupported OS: ${CMAKE_SYSTEM_NAME}")
 endif()
 
-
 list(APPEND PROJECT_LIBRARIES_LIST pthread)
-
 
 # [LIBRARIES]
 include(cmake/libraries/cxxopts.cmake)
@@ -51,7 +49,7 @@ include(cmake/libraries/certificate-processing.cmake)
 
 target_include_directories(${PROJECT_NAME} PUBLIC  ${PROJECT_INCLUDE_DIRS})
 target_link_directories(${PROJECT_NAME}    PUBLIC  ${PROJECT_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME}              ${PROJECT_LIBRARIES_LIST})
+target_link_libraries(${PROJECT_NAME}      PUBLIC  ${PROJECT_LIBRARIES_LIST})
 
 # [SOME BUILD INFO]
 string(TIMESTAMP COMPILE_TIME "%Y-%m-%d %H:%M:%S")
