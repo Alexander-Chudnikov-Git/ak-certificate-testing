@@ -3,12 +3,7 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
   GIT_TAG        v3.2.0
 )
-
-FetchContent_GetProperties(cxxopts)
-
-if(NOT cxxopts_POPULATED)
-  FetchContent_MakeAvailable(cxxopts)
-endif()
+FetchContent_MakeAvailable(cxxopts)
 
 list(APPEND PROJECT_LIBRARIES_LIST cxxopts::cxxopts)
 

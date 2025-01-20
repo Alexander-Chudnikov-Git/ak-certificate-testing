@@ -4,12 +4,12 @@ FetchContent_Declare(
   GIT_TAG        0.9.16
 )
 
-FetchContent_GetProperties(libakrypt)
+set(AK_TOOL OFF CACHE BOOL "Disable AK_TOOL")
+set(CMAKE_C_FLAGS "-march=native" CACHE INTERNAL "Set march")
 
-if(NOT libakrypt_POPULATED)
-  set(AK_TOOL OFF CACHE BOOL "Disable AK_TOOL")
+FetchContent_MakeAvailable(libakrypt)
 
-  FetchContent_MakeAvailable(libakrypt)
-endif()
+list(APPEND PROJECT_INCLUDE_DIRS ${libakrypt_BINARY_DIR})
+list(APPEND PROJECT_INCLUDE_DIRS ${libakrypt_SOURCE_DIR}/source)
 
-list(APPEND PROJECT_LIBRARIES_LIST libakrypt-base.so libakrypt.so)
+list(APPEND PROJECT_LIBRARIES_LIST akrypt-shared)

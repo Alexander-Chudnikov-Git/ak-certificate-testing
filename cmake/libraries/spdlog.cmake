@@ -4,13 +4,9 @@ FetchContent_Declare(
   GIT_TAG        v1.15.0
 )
 
-FetchContent_GetProperties(spdlog)
+set(SPDLOG_BUILD_SHARED ON CACHE BOOL "Build spdlog as a shared library" FORCE)
 
-if(NOT spdlog_POPULATED)
-  set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "Build spdlog as a static library" FORCE)
-
-  FetchContent_MakeAvailable(spdlog)
-endif()
+FetchContent_MakeAvailable(spdlog)
 
 list(APPEND PROJECT_LIBRARIES_LIST spdlog::spdlog)
 
